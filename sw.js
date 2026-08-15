@@ -1,5 +1,5 @@
 // Bump CACHE_NAME on every deploy so old cached assets get cleaned up.
-var CACHE_NAME = "koerper-tracker-v2";
+var CACHE_NAME = "koerper-tracker-v3";
 
 self.addEventListener("install", function(event){
   self.skipWaiting();

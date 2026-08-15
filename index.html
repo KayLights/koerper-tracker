@@ -157,6 +157,13 @@
     font-weight:600;
     color:var(--cream);
   }
+  .multi-hint{
+    font-family:'Inter',sans-serif;
+    font-size:0.72rem;
+    font-weight:500;
+    color:var(--gold);
+    text-transform:none;
+  }
   .opt-grid{
     display:flex;
     flex-wrap:wrap;
@@ -388,7 +395,7 @@
   var STORAGE_KEY = "daily-logs";
 
   var CATEGORIES = [
-    { id:"periode", label:"Periode / Ausfluss", options:[
+    { id:"periode", label:"Periode / Ausfluss", multi:true, options:[
         {v:"blut", l:"Blut"},
         {v:"nichts", l:"nichts"},
         {v:"durchsichtig-duenn", l:"durchsichtig dünn"},
@@ -423,7 +430,7 @@
         {v:"normal", l:"normal"},
         {v:"erschoepft", l:"erschöpft / lustlos"}
     ]},
-    { id:"verdauung", label:"Verdauung / Bauch", options:[
+    { id:"verdauung", label:"Verdauung / Bauch", multi:true, options:[
         {v:"normal", l:"normal"},
         {v:"blaehungen", l:"Blähungen"},
         {v:"durchfall", l:"Durchfall"},
@@ -455,7 +462,15 @@
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   }
   function sameDay(a,b){ return fmtDate(a)===fmtDate(b); }
-  function isPeriodLog(log){ return !!log && log.periode === "blut"; }
+  function valueHasOption(val, optValue){
+    if(Array.isArray(val)) return val.indexOf(optValue) >= 0;
+    return val === optValue;
+  }
+  function valueIsSet(val){
+    if(Array.isArray(val)) return val.length > 0;
+    return val !== undefined && val !== null && val !== "";
+  }
+  function isPeriodLog(log){ return !!log && valueHasOption(log.periode, "blut"); }
 
   // ---------- storage ----------
   function loadLogs(){
@@ -484,12 +499,20 @@
 
   function setValue(dateStr, catId, value){
     var day = state.logs[dateStr] ? Object.assign({}, state.logs[dateStr]) : {};
-    if(day[catId] === value){
-      delete day[catId];
+    var cat = CAT_BY_ID[catId];
+    if(cat && cat.multi){
+      var current = Array.isArray(day[catId]) ? day[catId].slice() : (valueIsSet(day[catId]) ? [day[catId]] : []);
+      var idx = current.indexOf(value);
+      if(idx >= 0){ current.splice(idx, 1); } else { current.push(value); }
+      if(current.length > 0){ day[catId] = current; } else { delete day[catId]; }
     } else {
-      day[catId] = value;
+      if(day[catId] === value){
+        delete day[catId];
+      } else {
+        day[catId] = value;
+      }
     }
-    var hasAny = Object.keys(day).some(function(k){ return day[k]; });
+    var hasAny = Object.keys(day).some(function(k){ return valueIsSet(day[k]); });
     if(hasAny){
       state.logs[dateStr] = day;
     } else {
@@ -608,7 +631,7 @@
   function buildQuickSelect(){
     var strip = el("div",{class:"quick-select"});
     var today = todayDate();
-    for(var i=9;i>=0;i--){
+    for(var i=4;i>=0;i--){
       (function(i){
         var d = addDays(today, -i);
         var dateStr = fmtDate(d);
@@ -634,10 +657,12 @@
 
   function buildCatCard(cat, dateStr, dayLog){
     var card = el("div",{class:"cat-card"});
-    card.appendChild(el("h3",{},[cat.label]));
+    var titleRow = el("h3",{},[cat.label]);
+    if(cat.multi) titleRow.appendChild(el("span",{class:"multi-hint"},[" (Mehrfachauswahl)"]));
+    card.appendChild(titleRow);
     var grid = el("div",{class:"opt-grid"});
     cat.options.forEach(function(opt){
-      var selected = dayLog[cat.id] === opt.v;
+      var selected = valueHasOption(dayLog[cat.id], opt.v);
       var btn = el("button",{
         class:"opt-btn" + (selected ? " selected":""),
         onclick:function(){ setValue(dateStr, cat.id, opt.v); }
@@ -675,12 +700,16 @@
       var tags = el("div",{class:"de-tags"});
       CATEGORIES.forEach(function(cat){
         var val = log[cat.id];
-        if(!val) return;
-        var optLabel = null;
-        cat.options.forEach(function(o){ if(o.v===val) optLabel = o.l; });
+        if(!valueIsSet(val)) return;
+        var values = Array.isArray(val) ? val : [val];
+        var labels = values.map(function(v){
+          var found = null;
+          cat.options.forEach(function(o){ if(o.v===v) found = o.l; });
+          return found || v;
+        });
         tags.appendChild(el("span",{class:"de-tag"},[
           cat.label + ": ",
-          el("b",{},[optLabel || val])
+          el("b",{},[labels.join(", ")])
         ]));
       });
       entry.appendChild(tags);
@@ -902,15 +931,15 @@
         var preTotal=0, preMatch=0, baseTotal=0, baseMatch=0;
         preWindowDates.forEach(function(d){
           var val = state.logs[d][cat.id];
-          if(val === undefined || val === null) return;
+          if(!valueIsSet(val)) return;
           preTotal++;
-          if(val === opt.v) preMatch++;
+          if(valueHasOption(val, opt.v)) preMatch++;
         });
         baselineDates.forEach(function(d){
           var val = state.logs[d][cat.id];
-          if(val === undefined || val === null) return;
+          if(!valueIsSet(val)) return;
           baseTotal++;
-          if(val === opt.v) baseMatch++;
+          if(valueHasOption(val, opt.v)) baseMatch++;
         });
         if(preTotal===0 || baseTotal===0 || baseMatch===0) return;
         var ratePre = preMatch/preTotal;
