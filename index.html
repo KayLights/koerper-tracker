@@ -435,6 +435,13 @@
         {v:"blaehungen", l:"Blähungen"},
         {v:"durchfall", l:"Durchfall"},
         {v:"verstopfung", l:"Verstopfung"}
+    ]},
+    { id:"essen", label:"Essen", multi:true, options:[
+        {v:"milch", l:"Milch"},
+        {v:"weizen", l:"Weizen"},
+        {v:"ungesund", l:"ungesund"},
+        {v:"gesund", l:"gesund"},
+        {v:"alkohol", l:"Alkohol"}
     ]}
   ];
 
@@ -985,9 +992,35 @@
 })();
 
 if("serviceWorker" in navigator){
+  // Bump on every deploy alongside CACHE_NAME in sw.js. This forces a genuinely
+  // new script URL each time, so the browser can never reuse a stale cached
+  // copy of sw.js to decide "nothing changed".
+  var SW_VERSION = "4";
+  var swReloading = false;
+
+  function checkForUpdate(){
+    navigator.serviceWorker.getRegistration().then(function(reg){
+      if(reg) reg.update();
+    }).catch(function(){});
+  }
+
   window.addEventListener("load", function(){
-    navigator.serviceWorker.register("sw.js").catch(function(){});
+    navigator.serviceWorker.register("sw.js?v=" + SW_VERSION).catch(function(){});
   });
+
+  navigator.serviceWorker.addEventListener("controllerchange", function(){
+    if(swReloading) return;
+    swReloading = true;
+    window.location.reload();
+  });
+
+  // iOS often resumes a Home Screen app from a suspended state instead of
+  // reloading it, so "load" never fires again. Re-check for updates whenever
+  // the app becomes visible or is restored from that suspended state.
+  document.addEventListener("visibilitychange", function(){
+    if(document.visibilityState === "visible") checkForUpdate();
+  });
+  window.addEventListener("pageshow", function(){ checkForUpdate(); });
 }
 </script>
 </body>
