@@ -274,6 +274,55 @@
     line-height:1.5;
   }
 
+  /* Backup */
+  .backup-card{
+    background:var(--card);
+    border-radius:18px;
+    padding:16px 16px 14px;
+    margin-bottom:16px;
+    border:1px solid var(--border-soft);
+  }
+  .backup-card h3{
+    margin:0 0 4px;
+    font-size:0.98rem;
+    font-weight:600;
+    color:var(--cream);
+  }
+  .backup-card .backup-hint{
+    font-size:0.78rem;
+    color:rgba(241,231,221,0.55);
+    line-height:1.45;
+    margin-bottom:12px;
+  }
+  .backup-actions{
+    display:flex;
+    gap:10px;
+  }
+  .backup-btn{
+    flex:1;
+    border:1px solid var(--border);
+    background:rgba(241,231,221,0.05);
+    color:var(--cream);
+    padding:12px 10px;
+    border-radius:12px;
+    font-size:0.86rem;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    min-height:44px;
+  }
+  .backup-btn:active{transform:scale(0.97);}
+  .backup-btn.primary{
+    background:var(--sage);
+    border-color:var(--sage);
+    color:#211622;
+  }
+  .backup-status{
+    margin-top:10px;
+    font-size:0.78rem;
+    color:var(--gold);
+    line-height:1.4;
+  }
+
   /* Einblicke */
   .section-title{
     font-size:1.02rem;
@@ -602,6 +651,8 @@
   // ----- Verlauf -----
   function buildVerlauf(){
     var wrap = el("div",{});
+    wrap.appendChild(buildBackupCard());
+
     var dates = Object.keys(state.logs).sort().reverse();
     if(dates.length === 0){
       wrap.appendChild(el("div",{class:"empty-state"},[
@@ -636,6 +687,105 @@
       wrap.appendChild(entry);
     });
     return wrap;
+  }
+
+  // ----- Backup (Export / Import) -----
+  function buildBackupCard(){
+    var card = el("div",{class:"backup-card"});
+    card.appendChild(el("h3",{},["Daten-Backup"]));
+    card.appendChild(el("div",{class:"backup-hint"},[
+      "Sichere deine Einträge als Datei, z. B. bevor du ein neues iPhone einrichtest. Beim Import auf dem neuen Gerät werden die Tage aus der Datei übernommen."
+    ]));
+    var statusBox = el("div",{class:"backup-status", style:"display:none"});
+    var actions = el("div",{class:"backup-actions"},[
+      el("button",{class:"backup-btn primary", onclick:function(){ exportBackup(statusBox); }},["Backup exportieren"]),
+      el("button",{class:"backup-btn", onclick:function(){ importBackup(statusBox); }},["Backup importieren"])
+    ]);
+    card.appendChild(actions);
+    card.appendChild(statusBox);
+    return card;
+  }
+
+  function showBackupStatus(box, text){
+    box.textContent = text;
+    box.style.display = "block";
+  }
+
+  function exportBackup(statusBox){
+    var count = Object.keys(state.logs).length;
+    if(count === 0){
+      showBackupStatus(statusBox, "Noch keine Einträge zum Exportieren vorhanden.");
+      return;
+    }
+    var dataStr = JSON.stringify(state.logs, null, 2);
+    var filename = "koerper-tracker-backup-" + fmtDate(todayDate()) + ".json";
+    var blob = new Blob([dataStr], {type:"application/json"});
+
+    if(navigator.share && navigator.canShare){
+      try{
+        var file = new File([blob], filename, {type:"application/json"});
+        if(navigator.canShare({files:[file]})){
+          navigator.share({files:[file], title:"Körper-Tracker Backup"}).then(function(){
+            showBackupStatus(statusBox, count + " Tage exportiert.");
+          }).catch(function(){ /* Nutzer hat abgebrochen */ });
+          return;
+        }
+      }catch(e){ /* fällt durch auf Download */ }
+    }
+
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+    showBackupStatus(statusBox, count + " Tage exportiert (" + filename + ").");
+  }
+
+  function importBackup(statusBox){
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.onchange = function(e){
+      var file = e.target.files && e.target.files[0];
+      if(!file) return;
+      var reader = new FileReader();
+      reader.onload = function(ev){
+        var imported;
+        try{
+          imported = JSON.parse(ev.target.result);
+        }catch(err){
+          showBackupStatus(statusBox, "Diese Datei ist kein gültiges Backup (JSON konnte nicht gelesen werden).");
+          return;
+        }
+        if(typeof imported !== "object" || imported === null || Array.isArray(imported)){
+          showBackupStatus(statusBox, "Diese Datei hat nicht das erwartete Backup-Format.");
+          return;
+        }
+        var dateKeyRe = /^\d{4}-\d{2}-\d{2}$/;
+        var validKeys = Object.keys(imported).filter(function(k){
+          return dateKeyRe.test(k) && typeof imported[k] === "object" && imported[k] !== null;
+        });
+        if(validKeys.length === 0){
+          showBackupStatus(statusBox, "In dieser Datei wurden keine gültigen Tages-Einträge gefunden.");
+          return;
+        }
+        var ok = window.confirm(
+          validKeys.length + " Tag(e) in der Backup-Datei gefunden.\n" +
+          "Vorhandene Einträge für dieselben Tage werden dabei überschrieben. Fortfahren?"
+        );
+        if(!ok) return;
+        validKeys.forEach(function(k){ state.logs[k] = imported[k]; });
+        saveLogs(state.logs);
+        render();
+        var freshStatusBox = document.querySelector(".backup-status");
+        if(freshStatusBox) showBackupStatus(freshStatusBox, validKeys.length + " Tag(e) erfolgreich importiert.");
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   }
 
   // ----- Einblicke -----
