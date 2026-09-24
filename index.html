@@ -383,6 +383,83 @@
     font-size:0.8rem;
     color:var(--sage);
   }
+
+  /* Insights v2 */
+  .cycle-banner{
+    background:rgba(201,161,93,0.1);
+    border:1px solid rgba(201,161,93,0.35);
+    border-radius:14px;
+    padding:12px 14px;
+    margin-bottom:16px;
+    font-size:0.8rem;
+    line-height:1.5;
+    color:var(--gold);
+  }
+  .insight-card{margin-bottom:8px;}
+  .insight-card .meta{
+    margin-top:6px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:0.72rem;
+    color:rgba(241,231,221,0.5);
+  }
+  .conf-badge{
+    display:inline-block;
+    padding:2px 8px;
+    border-radius:8px;
+    font-size:0.68rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+  }
+  .conf-badge.stark{background:rgba(124,152,133,0.25);color:var(--sage);}
+  .conf-badge.mittel{background:rgba(201,161,93,0.22);color:var(--gold);}
+  .conf-badge.schwach{background:rgba(241,231,221,0.1);color:rgba(241,231,221,0.65);}
+  .insight-empty{
+    font-size:0.85rem;
+    color:rgba(241,231,221,0.5);
+    padding:6px 2px 2px;
+  }
+  .phase-block{
+    margin-top:12px;
+    padding-top:12px;
+    border-top:1px solid var(--border-soft);
+  }
+  .phase-block .phase-title{
+    font-size:0.74rem;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.03em;
+    color:rgba(241,231,221,0.5);
+    margin-bottom:6px;
+  }
+  .phase-line{
+    font-size:0.82rem;
+    line-height:1.6;
+    color:rgba(241,231,221,0.85);
+  }
+  .phase-line b{color:var(--cream);}
+  .phase-line .n{color:rgba(241,231,221,0.45);font-size:0.74rem;}
+  .connections-scroll{
+    max-height:420px;
+    overflow-y:auto;
+    padding-right:2px;
+  }
+  .period-summary-block{
+    background:var(--wine-tint);
+    border:1px solid var(--wine);
+    border-radius:18px;
+    padding:16px;
+    margin-top:8px;
+  }
+  .period-summary-block h3{
+    margin:0 0 10px;
+    font-size:0.98rem;
+    font-weight:600;
+    color:var(--cream);
+  }
+  .period-summary-block .phase-line{color:rgba(241,231,221,0.9);}
 </style>
 </head>
 <body>
@@ -439,14 +516,20 @@
     { id:"essen", label:"Essen", multi:true, options:[
         {v:"milch", l:"Milch"},
         {v:"weizen", l:"Weizen"},
-        {v:"ungesund", l:"ungesund"},
-        {v:"gesund", l:"gesund"},
-        {v:"alkohol", l:"Alkohol"}
+        {v:"zucker", l:"Zucker"},
+        {v:"alkohol", l:"Alkohol"},
+        {v:"ungesund", l:"Ungesund"},
+        {v:"gesund", l:"Gesund"}
     ]}
   ];
 
   var CAT_BY_ID = {};
   CATEGORIES.forEach(function(c){ CAT_BY_ID[c.id] = c; });
+
+  // Symptom categories used by the correlation/insights engine: excludes
+  // "periode" (handled separately via cycle phases, not lift correlations)
+  // and "essen" (used only as a trigger, never as a predicted target).
+  var SYMPTOM_CATEGORIES = CATEGORIES.filter(function(c){ return c.id !== "periode" && c.id !== "essen"; });
 
   // ---------- date helpers (local time, no UTC shift) ----------
   function fmtDate(d){
@@ -829,8 +912,30 @@
     var wrap = el("div",{});
     wrap.appendChild(el("div",{class:"section-title"},["Letzte 35 Tage"]));
     wrap.appendChild(buildRing());
-    wrap.appendChild(el("div",{class:"section-title"},["Erkannte Muster"]));
-    wrap.appendChild(buildInsights());
+
+    var data = computeConnectionsMemo();
+
+    if(data.periodStartsCount < 3){
+      wrap.appendChild(el("div",{class:"cycle-banner"},[
+        "Noch wenig Zyklen erfasst (" + data.periodStartsCount + " Periodenstart(s), " + data.totalDays +
+        " Tag(e) insgesamt). Die Muster unten werden zuverlässiger, je mehr vollständige Zyklen du trackst."
+      ]));
+    }
+
+    wrap.appendChild(el("div",{class:"section-title"},["Muster & Zusammenhänge"]));
+    SYMPTOM_CATEGORIES.forEach(function(cat){
+      wrap.appendChild(buildCategoryInsightCard(cat, data));
+    });
+    CAT_BY_ID["essen"].options.forEach(function(opt){
+      wrap.appendChild(buildEssenInsightCard(opt, data));
+    });
+
+    wrap.appendChild(el("div",{class:"section-title"},["Verbindungen zwischen Symptomen"]));
+    wrap.appendChild(buildConnectionsSection(data));
+
+    wrap.appendChild(el("div",{class:"section-title"},["Periode / Ausfluss"]));
+    wrap.appendChild(buildPeriodSummaryBlock(data));
+
     return wrap;
   }
 
@@ -868,7 +973,7 @@
       svgParts.push('<path d="'+path+'" fill="'+fill+'" opacity="'+opacity+'" stroke="'+(stroke||'none')+'" stroke-width="1"></path>');
     });
 
-    var svgHtml = '<svg viewBox="0 0 '+size+' '+size+'" width="100%" height="auto" style="max-width:300px">' +
+    var svgHtml = '<svg viewBox="0 0 '+size+' '+size+'" style="width:100%;height:auto;max-width:300px">' +
       svgParts.join("") +
       '<circle cx="'+cx+'" cy="'+cy+'" r="'+(innerR-6)+'" fill="var(--card)"></circle>' +
       '<text x="'+cx+'" y="'+(cy-6)+'" text-anchor="middle" fill="var(--cream)" font-family="Fraunces, serif" font-size="26" font-weight="600">'+periodCount+'</text>' +
@@ -902,90 +1007,309 @@
       " A "+innerR+" "+innerR+" 0 "+largeArc+" 1 "+si.x+" "+si.y+" Z";
   }
 
-  // ---- pattern / lift computation ----
-  function computeInsights(){
-    var dates = Object.keys(state.logs).sort();
-    var totalDays = dates.length;
+  // ---- cycle phases ----
+  var PHASE_ORDER = ["menstruation", "fruehe", "eisprung", "luteal"];
+  var PHASE_LABELS = {
+    menstruation: "Periode",
+    fruehe: "Frühe Phase",
+    eisprung: "Eisprung-Fenster",
+    luteal: "Luteal / prämenstruell"
+  };
 
+  function computeCycleInfo(){
+    var dates = Object.keys(state.logs).sort();
     var periodStarts = dates.filter(function(dateStr){
       if(!isPeriodLog(state.logs[dateStr])) return false;
       var prev = fmtDate(addDays(parseDate(dateStr), -1));
       return !isPeriodLog(state.logs[prev]);
     });
 
-    if(totalDays < 14 || periodStarts.length < 2){
-      return {
-        insufficient:true,
-        totalDays: totalDays,
-        periodStartsCount: periodStarts.length
-      };
+    var cycleLength = 28;
+    if(periodStarts.length >= 2){
+      var diffs = [];
+      for(var i=1;i<periodStarts.length;i++){
+        var d0 = parseDate(periodStarts[i-1]);
+        var d1 = parseDate(periodStarts[i]);
+        diffs.push(Math.round((d1-d0)/86400000));
+      }
+      var sum = diffs.reduce(function(a,b){ return a+b; }, 0);
+      cycleLength = Math.round(sum/diffs.length);
+      if(cycleLength < 10 || cycleLength > 60) cycleLength = 28;
+    }
+    var ovulationMid = Math.round(cycleLength/2);
+
+    function phaseForDate(dateStr){
+      var log = state.logs[dateStr];
+      if(isPeriodLog(log)) return "menstruation";
+      var anchor = null;
+      for(var i=periodStarts.length-1;i>=0;i--){
+        if(periodStarts[i] <= dateStr){ anchor = periodStarts[i]; break; }
+      }
+      if(!anchor) return null;
+      var cycleDay = Math.round((parseDate(dateStr) - parseDate(anchor)) / 86400000);
+      if(cycleDay >= 1 && cycleDay <= 10) return "fruehe";
+      if(cycleDay >= ovulationMid-2 && cycleDay <= ovulationMid+2) return "eisprung";
+      return "luteal";
     }
 
-    var preWindowSet = {};
-    periodStarts.forEach(function(startStr){
-      var start = parseDate(startStr);
-      for(var i=1;i<=7;i++){
-        preWindowSet[fmtDate(addDays(start,-i))] = true;
-      }
+    return { cycleLength: cycleLength, periodStartsCount: periodStarts.length, phaseForDate: phaseForDate };
+  }
+
+  function tallyPhaseValues(catId, phaseForDate){
+    var tallies = {menstruation:{}, fruehe:{}, eisprung:{}, luteal:{}};
+    var counts = {menstruation:0, fruehe:0, eisprung:0, luteal:0};
+    Object.keys(state.logs).forEach(function(dateStr){
+      var val = state.logs[dateStr][catId];
+      if(!valueIsSet(val)) return;
+      var phase = phaseForDate(dateStr);
+      if(!phase) return;
+      var values = Array.isArray(val) ? val : [val];
+      counts[phase]++;
+      values.forEach(function(v){ tallies[phase][v] = (tallies[phase][v]||0) + 1; });
     });
-    var preWindowDates = Object.keys(preWindowSet).filter(function(d){ return !!state.logs[d]; });
+    return { tallies: tallies, counts: counts };
+  }
 
-    var baselineDates = dates.filter(function(d){ return !isPeriodLog(state.logs[d]); });
+  function mostCommonLabel(tally, cat){
+    var bestV = null, bestC = -1;
+    Object.keys(tally).forEach(function(v){
+      if(tally[v] > bestC){ bestC = tally[v]; bestV = v; }
+    });
+    if(bestV === null) return null;
+    var label = bestV;
+    cat.options.forEach(function(o){ if(o.v === bestV) label = o.l; });
+    return label;
+  }
 
-    var insights = [];
-    CATEGORIES.forEach(function(cat){
-      cat.options.forEach(function(opt){
-        var preTotal=0, preMatch=0, baseTotal=0, baseMatch=0;
-        preWindowDates.forEach(function(d){
-          var val = state.logs[d][cat.id];
-          if(!valueIsSet(val)) return;
-          preTotal++;
-          if(valueHasOption(val, opt.v)) preMatch++;
-        });
-        baselineDates.forEach(function(d){
-          var val = state.logs[d][cat.id];
-          if(!valueIsSet(val)) return;
-          baseTotal++;
-          if(valueHasOption(val, opt.v)) baseMatch++;
-        });
-        if(preTotal===0 || baseTotal===0 || baseMatch===0) return;
-        var ratePre = preMatch/preTotal;
-        var rateBase = baseMatch/baseTotal;
-        if(rateBase===0) return;
-        var lift = ratePre/rateBase;
-        if(lift >= 1.4 && preMatch >= 3){
-          insights.push({ cat:cat.label, opt:opt.l, lift:lift, n:preMatch });
+  // ---- pattern / lift computation (with 0-5 day offset search) ----
+  function classifyConfidence(lift, n){
+    if(lift >= 1.6 && n >= 5) return "stark";
+    if(lift >= 1.3 && n >= 3) return "mittel";
+    if(lift >= 1.1 && n >= 2) return "schwach";
+    return "kein Muster";
+  }
+  var CONF_RANK = {stark:3, mittel:2, schwach:1};
+
+  function buildTriggers(){
+    var triggers = [];
+    CAT_BY_ID["essen"].options.forEach(function(opt){
+      triggers.push({
+        key: "essen:"+opt.v, catId: "essen", optValue: opt.v, label: opt.l,
+        isActive: function(dateStr){
+          var day = state.logs[dateStr];
+          return !!day && valueHasOption(day["essen"], opt.v);
         }
       });
     });
-    insights.sort(function(a,b){ return b.lift - a.lift; });
-    return { insufficient:false, insights: insights };
+    SYMPTOM_CATEGORIES.forEach(function(cat){
+      cat.options.forEach(function(opt){
+        triggers.push({
+          key: cat.id+":"+opt.v, catId: cat.id, optValue: opt.v, label: cat.label+": "+opt.l,
+          isActive: function(dateStr){
+            var day = state.logs[dateStr];
+            return !!day && valueHasOption(day[cat.id], opt.v);
+          }
+        });
+      });
+    });
+    return triggers;
   }
 
-  function buildInsights(){
-    var result = computeInsights();
-    var wrap = el("div",{});
-    if(result.insufficient){
-      wrap.appendChild(el("div",{class:"insight-note"},[
-        "Noch nicht genug Daten für eine zuverlässige Muster-Erkennung. Erfasse mindestens 2 Periodenstarts und insgesamt etwa 14 Tage – dann können hier Zusammenhänge auftauchen.",
-        el("div",{class:"progress"},[
-          "Bisher erfasst: " + result.totalDays + " Tag(e), " + result.periodStartsCount + " erkannte(r) Periodenstart(s)."
-        ])
-      ]));
-      return wrap;
-    }
-    if(result.insights.length === 0){
-      wrap.appendChild(el("div",{class:"insight-note"},[
-        "Bisher wurden keine auffälligen Muster mit ausreichender Häufigkeit gefunden. Das kann sich ändern, je mehr Tage du erfasst."
-      ]));
-      return wrap;
-    }
-    result.insights.slice(0,8).forEach(function(ins){
-      var text = 'In der Woche vor deiner Periode ist „' + ins.opt + '“ bei ' + ins.cat + ' ' +
-        ins.lift.toFixed(1) + '× häufiger als sonst.';
-      wrap.appendChild(el("div",{class:"insight-card"},[text]));
+  function buildTargets(){
+    var targets = [];
+    SYMPTOM_CATEGORIES.forEach(function(cat){
+      cat.options.forEach(function(opt){
+        targets.push({ catId: cat.id, catLabel: cat.label, optValue: opt.v, optLabel: opt.l });
+      });
     });
-    return wrap;
+    return targets;
+  }
+
+  function computeConnectionsRaw(){
+    var dates = Object.keys(state.logs);
+    var triggers = buildTriggers();
+    var targets = buildTargets();
+
+    targets.forEach(function(t){
+      var baseTotal = 0, baseMatch = 0;
+      dates.forEach(function(d){
+        var val = state.logs[d][t.catId];
+        if(!valueIsSet(val)) return;
+        baseTotal++;
+        if(valueHasOption(val, t.optValue)) baseMatch++;
+      });
+      t._baseTotal = baseTotal;
+      t._rateBase = baseTotal > 0 ? baseMatch/baseTotal : 0;
+    });
+
+    triggers.forEach(function(tr){
+      tr._activeDates = dates.filter(function(d){ return tr.isActive(d); });
+    });
+
+    var connections = [];
+    triggers.forEach(function(trigger){
+      targets.forEach(function(target){
+        if(trigger.catId === target.catId) return; // skip a category correlating with itself
+        if(target._baseTotal === 0 || target._rateBase === 0) return;
+
+        var best = null;
+        for(var offset=0; offset<=5; offset++){
+          var preTotal = 0, preMatch = 0;
+          trigger._activeDates.forEach(function(d){
+            var shifted = fmtDate(addDays(parseDate(d), offset));
+            var dayLog = state.logs[shifted];
+            if(!dayLog) return;
+            var val = dayLog[target.catId];
+            if(!valueIsSet(val)) return;
+            preTotal++;
+            if(valueHasOption(val, target.optValue)) preMatch++;
+          });
+          if(preTotal === 0) continue;
+          var lift = (preMatch/preTotal) / target._rateBase;
+          if(!best || lift > best.lift || (lift === best.lift && preMatch > best.n)){
+            best = { offset: offset, lift: lift, n: preMatch };
+          }
+        }
+        if(!best) return;
+        var confidence = classifyConfidence(best.lift, best.n);
+        if(confidence === "kein Muster") return;
+
+        connections.push({
+          triggerType: trigger.catId === "essen" ? "essen" : "symptom",
+          triggerCatId: trigger.catId,
+          triggerOptValue: trigger.optValue,
+          triggerLabel: trigger.label,
+          targetCatId: target.catId,
+          targetCatLabel: target.catLabel,
+          targetOptLabel: target.optLabel,
+          offset: best.offset,
+          lift: best.lift,
+          n: best.n,
+          confidence: confidence
+        });
+      });
+    });
+
+    connections.sort(function(a,b){
+      var rankDiff = CONF_RANK[b.confidence] - CONF_RANK[a.confidence];
+      if(rankDiff !== 0) return rankDiff;
+      return b.lift - a.lift;
+    });
+
+    var sortedDates = dates.sort();
+    var periodStarts = sortedDates.filter(function(dateStr){
+      if(!isPeriodLog(state.logs[dateStr])) return false;
+      var prev = fmtDate(addDays(parseDate(dateStr), -1));
+      return !isPeriodLog(state.logs[prev]);
+    });
+
+    return {
+      connections: connections,
+      totalDays: sortedDates.length,
+      periodStartsCount: periodStarts.length,
+      cycleInfo: computeCycleInfo()
+    };
+  }
+
+  var _insightsCache = { key: null, result: null };
+  function computeConnectionsMemo(){
+    var key = JSON.stringify(state.logs);
+    if(_insightsCache.key === key) return _insightsCache.result;
+    var result = computeConnectionsRaw();
+    _insightsCache.key = key;
+    _insightsCache.result = result;
+    return result;
+  }
+
+  function offsetPhrase(offset){
+    if(offset === 0) return "Gleichentags";
+    if(offset === 1) return "Einen Tag später";
+    return offset + " Tage später";
+  }
+
+  function buildConnectionCard(conn){
+    var sentence = offsetPhrase(conn.offset) + " ist „" + conn.targetOptLabel + "“ bei " + conn.targetCatLabel +
+      " nach „" + conn.triggerLabel + "“ " + conn.lift.toFixed(1) + "× häufiger als sonst.";
+    return el("div",{class:"insight-card"},[
+      sentence,
+      el("div",{class:"meta"},[
+        el("span",{class:"conf-badge " + conn.confidence},[conn.confidence]),
+        el("span",{},["n=" + conn.n])
+      ])
+    ]);
+  }
+
+  function buildPhaseBlock(cat, cycleInfo){
+    var block = el("div",{class:"phase-block"});
+    block.appendChild(el("div",{class:"phase-title"},["Nach Zyklusphase"]));
+    var phaseData = tallyPhaseValues(cat.id, cycleInfo.phaseForDate);
+    PHASE_ORDER.forEach(function(p){
+      var n = phaseData.counts[p];
+      var label = n > 0 ? mostCommonLabel(phaseData.tallies[p], cat) : null;
+      var line = el("div",{class:"phase-line"});
+      line.appendChild(document.createTextNode(PHASE_LABELS[p] + ": "));
+      if(label){
+        line.appendChild(el("b",{},["meist " + label]));
+        line.appendChild(el("span",{class:"n"},[" (n=" + n + ")"]));
+      } else {
+        line.appendChild(document.createTextNode("keine Daten"));
+      }
+      block.appendChild(line);
+    });
+    return block;
+  }
+
+  function buildCategoryInsightCard(cat, data){
+    var card = el("div",{class:"cat-card"});
+    card.appendChild(el("h3",{},[cat.label]));
+    var relevant = data.connections.filter(function(c){ return c.targetCatId === cat.id; });
+    if(relevant.length === 0){
+      card.appendChild(el("div",{class:"insight-empty"},["Noch kein Zusammenhang erkennbar."]));
+    } else {
+      relevant.slice(0,8).forEach(function(conn){ card.appendChild(buildConnectionCard(conn)); });
+    }
+    card.appendChild(buildPhaseBlock(cat, data.cycleInfo));
+    return card;
+  }
+
+  function buildEssenInsightCard(opt, data){
+    var card = el("div",{class:"cat-card"});
+    card.appendChild(el("h3",{},["Essen: " + opt.l]));
+    var relevant = data.connections.filter(function(c){
+      return c.triggerType === "essen" && c.triggerOptValue === opt.v;
+    });
+    if(relevant.length === 0){
+      card.appendChild(el("div",{class:"insight-empty"},["Noch kein Zusammenhang erkennbar."]));
+    } else {
+      relevant.slice(0,8).forEach(function(conn){ card.appendChild(buildConnectionCard(conn)); });
+    }
+    return card;
+  }
+
+  function buildConnectionsSection(data){
+    if(data.connections.length === 0){
+      return el("div",{class:"insight-note"},[
+        "Bisher wurden keine Verbindungen mit ausreichender Konfidenz gefunden. Das kann sich ändern, je mehr Tage du erfasst."
+      ]);
+    }
+    var container = el("div",{class: data.connections.length > 8 ? "connections-scroll" : ""});
+    data.connections.forEach(function(conn){ container.appendChild(buildConnectionCard(conn)); });
+    return container;
+  }
+
+  function buildPeriodSummaryBlock(data){
+    var block = el("div",{class:"period-summary-block"});
+    block.appendChild(el("h3",{},["Ausfluss nach Zyklusphase"]));
+    var periodeCat = CAT_BY_ID["periode"];
+    var phaseData = tallyPhaseValues("periode", data.cycleInfo.phaseForDate);
+    var parts = [];
+    PHASE_ORDER.forEach(function(p){
+      var n = phaseData.counts[p];
+      var label = n > 0 ? mostCommonLabel(phaseData.tallies[p], periodeCat) : null;
+      parts.push(PHASE_LABELS[p] + ": " + (label ? ("meist " + label + " (n=" + n + ")") : "keine Daten"));
+    });
+    block.appendChild(el("div",{class:"phase-line"},[parts.join(" · ")]));
+    return block;
   }
 
   render();
@@ -995,7 +1319,7 @@ if("serviceWorker" in navigator){
   // Bump on every deploy alongside CACHE_NAME in sw.js. This forces a genuinely
   // new script URL each time, so the browser can never reuse a stale cached
   // copy of sw.js to decide "nothing changed".
-  var SW_VERSION = "5";
+  var SW_VERSION = "6";
   var swReloading = false;
 
   function checkForUpdate(){
